@@ -180,9 +180,10 @@ def test_release_branch_tag_conflict(app, test_user, github_api):
     api.init_account()
     repo_id = 2
     repo_name = "repo-2"
+    repo_full_name = "auser/repo-2"
 
-    # Create a repo hook
-    hook_created = api.create_hook(repo_id=repo_id, repo_name=repo_name)
+    # Create a repo hook (stored repository uses the full name, as in production)
+    hook_created = api.create_hook(repo_id=repo_id, repo_name=repo_full_name)
     assert hook_created
 
     headers = [("Content-Type", "application/json")]
@@ -195,10 +196,11 @@ def test_release_branch_tag_conflict(app, test_user, github_api):
             receiver_id="github",
             user_id=test_user.id,
         )
+        repo = Repository.get(github_id=repo_id, name=repo_full_name)
         release = Release(
             release_id=payload["release"]["id"],
             tag=event.payload["release"]["tag_name"],
-            repository_id=repo_id,
+            repository=repo,
             event=event,
             status=ReleaseStatus.RECEIVED,
         )

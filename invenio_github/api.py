@@ -26,10 +26,11 @@
 """Invenio module that adds GitHub integration to the platform."""
 
 import json
+import re
 from abc import abstractmethod
 from contextlib import contextmanager
 from copy import deepcopy
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import github3
 import requests
@@ -59,6 +60,10 @@ from .errors import (
     RepositoryNotFoundError,
     UnexpectedGithubResponse,
 )
+
+#: A GitHub repository full name: "owner/repo", made of letters, digits,
+#: "-", "_" and ".".
+_GITHUB_FULL_NAME = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 class GitHubAPI(object):
@@ -541,8 +546,27 @@ class GitHubRelease(object):
 
     @cached_property
     def release_zipball_url(self):
-        """Returns the release zipball URL."""
-        return self.release_payload["zipball_url"]
+        """Returns the release zipball URL.
+
+        The URL is built from the stored repository name and the release tag,
+        instead of using the ``zipball_url`` sent in the webhook payload.
+        """
+        full_name = self.repository_object.name
+        tag = self.release_payload["tag_name"]
+        # Only accept "owner/repo" names, so the name cannot change the host or
+        # the path of the URL.
+        if not _GITHUB_FULL_NAME.match(full_name) or any(
+            part in (".", "..") for part in full_name.split("/")
+        ):
+            raise ReleaseZipballFetchError()
+        # Tags may contain "/" (e.g. "release/v1.0"), but no empty, "." or ".."
+        # parts that would point the URL outside the zipball path. Other special
+        # characters are percent-encoded by ``quote``.
+        if any(part in ("", ".", "..") for part in tag.split("/")):
+            raise ReleaseZipballFetchError()
+        return "https://api.github.com/repos/{0}/zipball/{1}".format(
+            full_name, quote(tag, safe="/")
+        )
 
     @cached_property
     def user_identity(self):
